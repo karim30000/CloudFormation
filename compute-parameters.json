@@ -1,0 +1,18 @@
+[
+    {
+        "ParameterKey": "EnvName",
+        "ParameterValue": "Prod"
+    },
+    {
+        "ParameterKey": "VpcCIDR",
+        "ParameterValue": "10.0.0.0/16"
+    },
+    {
+        "ParameterKey": "ImgID",
+        "ParameterValue": "ami-0b93ce03dcbcb10f6"
+    },
+    {
+        "ParameterKey": "InstanceType",
+        "ParameterValue": "t3.medium"
+    }
+]

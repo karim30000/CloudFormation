@@ -1,0 +1,26 @@
+[
+    {
+        "ParameterKey": "EnvName",
+        "ParameterValue": "Prod"
+    },
+    {
+        "ParameterKey": "VpcCIDR",
+        "ParameterValue": "10.0.0.0/16"
+    },
+    {
+        "ParameterKey": "PubSubNet1CIDR",
+        "ParameterValue": "10.0.0.0/24"
+    },
+    {
+        "ParameterKey": "PubSubNet2CIDR",
+        "ParameterValue": "10.0.1.0/24"
+    },
+    {
+        "ParameterKey": "PrivateSubNet1CIDR",
+        "ParameterValue": "10.0.2.0/24"
+    },
+    {
+        "ParameterKey": "PrivateSubNet2CIDR",
+        "ParameterValue": "10.0.3.0/24"
+    }
+]

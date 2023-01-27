@@ -1,0 +1,210 @@
+Description:  This stack creates the compute resources for project no.2
+
+Parameters:
+  
+  EnvName:
+    Description: This is my Env. name 
+    Type: String
+    Default: Prod
+
+  VpcCIDR:
+    Description: This is my vpv-cidr_block
+    Type: String
+    Default: 10.0.0.0/16
+
+  ImgID:
+    Description: This is my Img ID for my instances
+    Type: String
+
+  InstanceType:
+    Description: This is my instance type for my target group'instances
+    Type: String
+
+Resources:
+
+  BastionEc2:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImgID
+      InstanceType: !Ref InstanceType
+      KeyName: bastion
+      NetworkInterfaces: 
+      - AssociatePublicIpAddress: "true"
+        DeviceIndex: "0"
+        SubnetId: 
+          Fn::ImportValue:
+            !Sub ${EnvName}-Pub-SubNet1
+        GroupSet: 
+          - Ref: "BastionSG"
+      UserData: 
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          apt-get update -qq
+          apt-get install  openssh-server -qq
+          service ssh start
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-bastion_pub-server
+  
+  BastionSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: allows ssh from everywhere
+      VpcId: 
+        Fn::ImportValue:
+          !Sub ${EnvName}-VpcID
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+      - IpProtocol: -1
+        FromPort: 0
+        ToPort: 65535
+        CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-BastionSG
+  
+  LBSecGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: allows HTTP port 80 to the load balancer
+      VpcId: 
+        Fn::ImportValue:
+          !Sub ${EnvName}-VpcID
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-LBSecGroup
+
+  AppSecGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupDescription: allows HTTP port 80 from vpcCIDR && ssh from bastioN
+      VpcId:
+        Fn::ImportValue:
+          !Sub "${EnvName}-VpcID"
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: !Ref VpcCIDR
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: !Join [ "", [ !GetAtt BastionEc2.PublicIp, "/32" ] ]
+      SecurityGroupEgress:
+      - IpProtocol: -1
+        FromPort: 0
+        ToPort: 65535
+        CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvName}-AppSecGroup
+
+  AppLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties: 
+      ImageId: !Ref ImgID
+      InstanceType: !Ref InstanceType
+      SecurityGroups:
+        - Ref: AppSecGroup
+      BlockDeviceMappings:
+      - DeviceName: "/dev/sdk"
+        Ebs:
+          VolumeSize: '10'
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          apt-get update -qq
+          apt-get install -y apache2
+          systemctl start apache2.service
+          cd /var/www/html
+          echo "it works! Udagram, Udacity" > index.html
+
+  AppAutoScaling: 
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+      - Fn::ImportValue: 
+          !Sub ${EnvName}-Private-NETS
+      LaunchConfigurationName: 
+        Ref: AppLaunchConfig
+      MinSize: '3'
+      MaxSize: '5'
+      TargetGroupARNs:
+      - Ref: AppTargetGroup
+
+  AppLB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties: 
+      Subnets:
+        - Fn::ImportValue: !Sub ${EnvName}-Pub-SubNet1
+        - Fn::ImportValue: !Sub ${EnvName}-Pub-SubNet2
+      SecurityGroups:
+        - Ref: LBSecGroup
+
+  LBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+      - Type: forward
+        TargetGroupArn:
+          Ref: AppTargetGroup
+      LoadBalancerArn:
+        Ref: AppLB
+      Port: '80'
+      Protocol: HTTP
+
+  LBListenerRule:
+      Type: AWS::ElasticLoadBalancingV2::ListenerRule
+      Properties:
+        Actions:
+        - Type: forward
+          TargetGroupArn: !Ref AppTargetGroup
+        Conditions:
+        - Field: path-pattern
+          Values: [/]
+        ListenerArn: !Ref LBListener
+        Priority: 1
+
+  AppTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 8
+      HealthyThresholdCount: 2
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 5
+      VpcId: 
+        Fn::ImportValue:
+          !Sub "${EnvName}-VpcID"
+
+Outputs:
+  
+  LBDNSURL:
+    Description: This is the DNS name of the load balancer
+    Value: !Join [ "", [ "http://", !GetAtt AppLB.DNSName, "/" ] ]
+    Export: 
+      Name: !Sub ${EnvName}-LB-DNSURL
+
+  BastionPubIP:
+    Description: This is my bastion server public ip
+    Value: !GetAtt BastionEc2.PublicIp
+    Export:
+      Name: !Sub ${EnvName}-Bastion-pub-IP
+ 
